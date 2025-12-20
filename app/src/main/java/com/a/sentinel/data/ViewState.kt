@@ -12,5 +12,6 @@ data class MainViewState(
     val newPackageName: String = "",
     val errorMessage: String? = null,
     val isSystemProcessSectionExpanded: Boolean = false,
+    val isSystemServiceProcessSectionExpanded: Boolean = false,
     val isUserProcessSectionExpanded: Boolean = true
 )

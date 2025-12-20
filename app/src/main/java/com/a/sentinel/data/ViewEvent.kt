@@ -15,5 +15,6 @@ sealed class MainViewEvent {
     data class KillProcess(val process: ProcessInfo) : MainViewEvent()
     data class UpdateNewPackageName(val name: String) : MainViewEvent()
     data object ToggleSystemProcessSection : MainViewEvent()
+    data object ToggleSystemServiceProcessSection : MainViewEvent()
     data object ToggleUserProcessSection : MainViewEvent()
 }

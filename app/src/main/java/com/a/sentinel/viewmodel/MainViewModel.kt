@@ -38,6 +38,7 @@ class MainViewModel : ViewModel() {
             is MainViewEvent.KillProcess -> killProcess(event.process)
             is MainViewEvent.UpdateNewPackageName -> updateNewPackageName(event.name)
             is MainViewEvent.ToggleSystemProcessSection -> toggleSystemProcessSection()
+            is MainViewEvent.ToggleSystemServiceProcessSection -> toggleSystemServiceProcessSection()
             is MainViewEvent.ToggleUserProcessSection -> toggleUserProcessSection()
         }
     }
@@ -65,6 +66,7 @@ class MainViewModel : ViewModel() {
                         whitelist = whitelist,
                         // 默认系统进程折叠，用户进程展开
                         isSystemProcessSectionExpanded = false,
+                        isSystemServiceProcessSectionExpanded = false,
                         isUserProcessSectionExpanded = true
                     )
                 } else {
@@ -164,6 +166,11 @@ class MainViewModel : ViewModel() {
     private fun toggleSystemProcessSection() {
         val currentState = _viewState.value.isSystemProcessSectionExpanded
         _viewState.value = _viewState.value.copy(isSystemProcessSectionExpanded = !currentState)
+    }
+
+    private fun toggleSystemServiceProcessSection() {
+        val currentState = _viewState.value.isSystemServiceProcessSectionExpanded
+        _viewState.value = _viewState.value.copy(isSystemServiceProcessSectionExpanded = !currentState)
     }
 
     private fun toggleUserProcessSection() {

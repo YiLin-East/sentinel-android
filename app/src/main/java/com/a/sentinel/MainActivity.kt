@@ -159,7 +159,7 @@ fun MainScreen(
                             },
                             enabled = viewState.hasRoot && !viewState.isLoading
                         ) {
-                            Text("Add to Whititelist")
+                            Text("Add to Whitelist")
                         }
                     }
                     
@@ -263,16 +263,17 @@ fun MainScreen(
                     if (viewState.processList.isEmpty()) {
                         Text("No processes found")
                     } else {
-                        // 分离系统进程和用户进程
-                        val systemProcesses = viewState.processList.filter { ProcessScanner.isSystemProcess(it) }
-                        val userProcesses = viewState.processList.filter { !ProcessScanner.isSystemProcess(it) }
+                        // 分离不同类型进程
+                        val coreSystemProcesses = viewState.processList.filter { ProcessScanner.isCoreSystemProcess(it) }
+                        val systemServiceProcesses = viewState.processList.filter { ProcessScanner.isSystemServiceProcess(it) }
+                        val userAppProcesses = viewState.processList.filter { ProcessScanner.isUserAppProcess(it) }
                         
-                        // 系统进程部分
+                        // 核心系统进程部分
                         ProcessSection(
-                            title = "System Processes (${systemProcesses.size})",
+                            title = "Core System Processes (${coreSystemProcesses.size})",
                             isExpanded = viewState.isSystemProcessSectionExpanded,
                             onToggle = { viewModel.handleEvent(MainViewEvent.ToggleSystemProcessSection) },
-                            processes = systemProcesses,
+                            processes = coreSystemProcesses,
                             viewState = viewState,
                             viewModel = viewModel,
                             context = context
@@ -280,12 +281,25 @@ fun MainScreen(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
-                        // 用户进程部分
+                        // 系统服务进程部分
                         ProcessSection(
-                            title = "User App Processes (${userProcesses.size})",
+                            title = "System Service Processes (${systemServiceProcesses.size})",
+                            isExpanded = viewState.isSystemServiceProcessSectionExpanded,
+                            onToggle = { viewModel.handleEvent(MainViewEvent.ToggleSystemServiceProcessSection) },
+                            processes = systemServiceProcesses,
+                            viewState = viewState,
+                            viewModel = viewModel,
+                            context = context
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // 用户应用进程部分
+                        ProcessSection(
+                            title = "User App Processes (${userAppProcesses.size})",
                             isExpanded = viewState.isUserProcessSectionExpanded,
                             onToggle = { viewModel.handleEvent(MainViewEvent.ToggleUserProcessSection) },
-                            processes = userProcesses,
+                            processes = userAppProcesses,
                             viewState = viewState,
                             viewModel = viewModel,
                             context = context
@@ -421,6 +435,12 @@ fun ProcessItem(
                             color = if (isWhitelisted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    // 显示UID信息
+                    Text(
+                        text = "UID: ${process.uid}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 
                 if (isWhitelisted) {
