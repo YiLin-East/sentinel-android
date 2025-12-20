@@ -40,4 +40,31 @@ object ProcessScanner {
         return cmd.split(" ")
             .firstOrNull { it.contains('.') && !it.contains("/") }
     }
+    
+    /**
+     * 根据使用场景过滤进程列表
+     * @param scenario 场景类型： "screen_off", "game_mode" 等
+     * @return 过滤后的进程列表
+     */
+    fun scanByScenario(scenario: String): List<ProcessInfo> {
+        val allProcesses = scan()
+        
+        return when (scenario) {
+            "screen_off" -> {
+                // 锁屏时可以考虑清理更多后台应用
+                allProcesses.filter { process ->
+                    // 移除白名单中的进程
+                    !SystemWhitelist.isInWhitelist(process.packageName)
+                }
+            }
+            "game_mode" -> {
+                // 游戏模式下清理其他非必要的后台应用
+                allProcesses.filter { process ->
+                    // 移除白名单中的进程
+                    !SystemWhitelist.isInWhitelist(process.packageName)
+                }
+            }
+            else -> allProcesses
+        }
+    }
 }
