@@ -6,11 +6,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -19,10 +21,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.a.sentinel.data.MainViewEvent
 import com.a.sentinel.data.ProcessInfo
+import com.a.sentinel.repository.ProcessScanner
+import com.a.sentinel.repository.SystemWhitelist
 import com.a.sentinel.ui.theme.SentinelTheme
 import com.a.sentinel.viewmodel.MainViewModel
 
@@ -34,7 +39,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         // 初始化白名单系统
-        com.a.sentinel.repository.SystemWhitelist.initialize(this)
+        SystemWhitelist.initialize(this)
         
         setContent {
             SentinelTheme {
@@ -62,7 +67,7 @@ fun MainScreen(
     viewState.errorMessage?.let { errorMessage ->
         Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
         // 清除错误消息
-        viewModel.handleEvent(MainViewEvent.CheckRootStatus) // 重新检查状态以清除错误
+        // 不再自动清除错误消息，让用户主动刷新
     }
     
     if (viewState.showAddWhitelistDialog) {
@@ -87,10 +92,12 @@ fun MainScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.handleEvent(
-                            MainViewEvent.AddToWhitelist(viewState.newPackageName)
-                        )
-                        Toast.makeText(context, "Added to whitelist", Toast.LENGTH_SHORT).show()
+                        if (viewState.newPackageName.isNotBlank()) {
+                            viewModel.handleEvent(
+                                MainViewEvent.AddToWhitelist(viewState.newPackageName)
+                            )
+                            Toast.makeText(context, "Added to whitelist", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 ) {
                     Text("Add")
@@ -152,7 +159,7 @@ fun MainScreen(
                             },
                             enabled = viewState.hasRoot && !viewState.isLoading
                         ) {
-                            Text("Add to Whitelist")
+                            Text("Add to Whititelist")
                         }
                     }
                     
@@ -183,8 +190,9 @@ fun MainScreen(
                     if (viewState.whitelist.isEmpty()) {
                         Text("No packages in whitelist")
                     } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-                            items(viewState.whitelist.toList()) { pkg ->
+                        // 使用Column替代嵌套的LazyColumn
+                        Column(modifier = Modifier.heightIn(max = 200.dp)) {
+                            viewState.whitelist.toList().forEach { pkg ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -255,36 +263,115 @@ fun MainScreen(
                     if (viewState.processList.isEmpty()) {
                         Text("No processes found")
                     } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                            items(viewState.processList) { process ->
-                                ProcessItem(
-                                    process = process,
-                                    isSelected = viewState.selectedProcesses.contains(process),
-                                    isWhitelisted = com.a.sentinel.repository.SystemWhitelist.isInWhitelist(process.packageName),
-                                    onProcessSelected = { selected ->
-                                        viewModel.handleEvent(
-                                            MainViewEvent.ToggleProcessSelection(process)
-                                        )
-                                    },
-                                    onExpandClicked = {
-                                        viewModel.handleEvent(
-                                            MainViewEvent.ToggleProcessExpansion(process)
-                                        )
-                                    },
-                                    isExpanded = viewState.expandedProcess == process,
-                                    onKillProcess = {
-                                        viewModel.handleEvent(
-                                            MainViewEvent.KillProcess(process)
-                                        )
-                                        Toast.makeText(context, "Killed process", Toast.LENGTH_SHORT).show()
-                                    },
-                                    enabled = !viewState.isLoading
-                                )
-                            }
-                        }
+                        // 分离系统进程和用户进程
+                        val systemProcesses = viewState.processList.filter { ProcessScanner.isSystemProcess(it) }
+                        val userProcesses = viewState.processList.filter { !ProcessScanner.isSystemProcess(it) }
+                        
+                        // 系统进程部分
+                        ProcessSection(
+                            title = "System Processes (${systemProcesses.size})",
+                            isExpanded = viewState.isSystemProcessSectionExpanded,
+                            onToggle = { viewModel.handleEvent(MainViewEvent.ToggleSystemProcessSection) },
+                            processes = systemProcesses,
+                            viewState = viewState,
+                            viewModel = viewModel,
+                            context = context
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        // 用户进程部分
+                        ProcessSection(
+                            title = "User App Processes (${userProcesses.size})",
+                            isExpanded = viewState.isUserProcessSectionExpanded,
+                            onToggle = { viewModel.handleEvent(MainViewEvent.ToggleUserProcessSection) },
+                            processes = userProcesses,
+                            viewState = viewState,
+                            viewModel = viewModel,
+                            context = context
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ProcessSection(
+    title: String,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    processes: List<ProcessInfo>,
+    viewState: com.a.sentinel.data.MainViewState,
+    viewModel: com.a.sentinel.viewmodel.MainViewModel,
+    context: android.content.Context
+) {
+    Column {
+        // 吸顶标题栏
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowDropDown,
+                contentDescription = if (isExpanded) "Collapse" else "Expand"
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "${processes.size}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        
+        // 进程列表
+        if (isExpanded && processes.isNotEmpty()) {
+            // 使用Column替代嵌套的LazyColumn
+            Column(modifier = Modifier.fillMaxWidth()) {
+                processes.forEach { process ->
+                    ProcessItem(
+                        process = process,
+                        isSelected = viewState.selectedProcesses.contains(process),
+                        isWhitelisted = SystemWhitelist.isInWhitelist(process.packageName),
+                        onProcessSelected = { selected ->
+                            viewModel.handleEvent(
+                                MainViewEvent.ToggleProcessSelection(process)
+                            )
+                        },
+                        onExpandClicked = {
+                            viewModel.handleEvent(
+                                MainViewEvent.ToggleProcessExpansion(process)
+                            )
+                        },
+                        isExpanded = viewState.expandedProcess == process,
+                        onKillProcess = {
+                            viewModel.handleEvent(
+                                MainViewEvent.KillProcess(process)
+                            )
+                            Toast.makeText(context, "Killed process", Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = !viewState.isLoading
+                    )
+                }
+            }
+        } else if (isExpanded) {
+            Text(
+                text = "No processes in this section",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -345,7 +432,7 @@ fun ProcessItem(
                 } else {
                     IconButton(onClick = onExpandClicked, enabled = enabled) {
                         Icon(
-                            imageVector = if (isExpanded) Icons.Default.Delete else Icons.Default.Delete,
+                            imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowDropDown,
                             contentDescription = if (isExpanded) "Collapse" else "Expand"
                         )
                     }

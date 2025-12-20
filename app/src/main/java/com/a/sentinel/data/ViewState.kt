@@ -10,5 +10,7 @@ data class MainViewState(
     val expandedProcess: ProcessInfo? = null,
     val showAddWhitelistDialog: Boolean = false,
     val newPackageName: String = "",
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val isSystemProcessSectionExpanded: Boolean = false,
+    val isUserProcessSectionExpanded: Boolean = true
 )

@@ -37,6 +37,8 @@ class MainViewModel : ViewModel() {
             is MainViewEvent.KillSelectedProcesses -> killSelectedProcesses(event.processes)
             is MainViewEvent.KillProcess -> killProcess(event.process)
             is MainViewEvent.UpdateNewPackageName -> updateNewPackageName(event.name)
+            is MainViewEvent.ToggleSystemProcessSection -> toggleSystemProcessSection()
+            is MainViewEvent.ToggleUserProcessSection -> toggleUserProcessSection()
         }
     }
 
@@ -54,15 +56,16 @@ class MainViewModel : ViewModel() {
                         SystemWhitelist.getAll()
                     }
                     // 扫描进程
-                    val processList = withContext(Dispatchers.IO) {
-                        ProcessScanner.scan()
-                    }
+                    val processList = ProcessScanner.scan()
                     MainViewState(
                         isLoading = false,
                         rootStatus = "Device is rooted!",
                         hasRoot = true,
                         processList = processList,
-                        whitelist = whitelist
+                        whitelist = whitelist,
+                        // 默认系统进程折叠，用户进程展开
+                        isSystemProcessSectionExpanded = false,
+                        isUserProcessSectionExpanded = true
                     )
                 } else {
                     MainViewState(
@@ -87,9 +90,7 @@ class MainViewModel : ViewModel() {
             
             _viewState.value = _viewState.value.copy(isLoading = true)
             try {
-                val processList = withContext(Dispatchers.IO) {
-                    ProcessScanner.scan()
-                }
+                val processList = ProcessScanner.scan()
                 _viewState.value = _viewState.value.copy(
                     isLoading = false,
                     processList = processList
@@ -115,8 +116,8 @@ class MainViewModel : ViewModel() {
     }
 
     private fun addToWhitelist(packageName: String) {
-        viewModelScope.launch {
-            if (packageName.isNotBlank()) {
+        if (packageName.isNotBlank()) {
+            viewModelScope.launch {
                 withContext(Dispatchers.IO) {
                     SystemWhitelist.addToUserWhitelist(packageName)
                 }
@@ -160,6 +161,16 @@ class MainViewModel : ViewModel() {
         _viewState.value = _viewState.value.copy(expandedProcess = newExpanded)
     }
 
+    private fun toggleSystemProcessSection() {
+        val currentState = _viewState.value.isSystemProcessSectionExpanded
+        _viewState.value = _viewState.value.copy(isSystemProcessSectionExpanded = !currentState)
+    }
+
+    private fun toggleUserProcessSection() {
+        val currentState = _viewState.value.isUserProcessSectionExpanded
+        _viewState.value = _viewState.value.copy(isUserProcessSectionExpanded = !currentState)
+    }
+
     private fun killSelectedProcesses(processes: Set<ProcessInfo>) {
         viewModelScope.launch {
             _viewState.value = _viewState.value.copy(isLoading = true)
@@ -170,9 +181,7 @@ class MainViewModel : ViewModel() {
                     }
                 }
                 // 刷新进程列表
-                val processList = withContext(Dispatchers.IO) {
-                    ProcessScanner.scan()
-                }
+                val processList = ProcessScanner.scan()
                 _viewState.value = _viewState.value.copy(
                     isLoading = false,
                     processList = processList,
@@ -195,9 +204,7 @@ class MainViewModel : ViewModel() {
                     ProcessKiller.killPid(process.pid)
                 }
                 // 刷新进程列表
-                val processList = withContext(Dispatchers.IO) {
-                    ProcessScanner.scan()
-                }
+                val processList = ProcessScanner.scan()
                 _viewState.value = _viewState.value.copy(
                     isLoading = false,
                     processList = processList
