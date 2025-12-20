@@ -10,6 +10,7 @@ object SystemWhitelist {
     private const val TAG = "SystemWhitelist"
     private const val PREF_NAME = "whitelist_prefs"
     private const val USER_WHITELIST_KEY = "user_whitelist"
+    private const val USER_BLACKLIST_KEY = "user_blacklist"
     
     private var sharedPreferences: SharedPreferences? = null
     
@@ -21,6 +22,7 @@ object SystemWhitelist {
     )
     
     private val userWhitelist = mutableSetOf<String>()
+    private val userBlacklist = mutableSetOf<String>()
     
     fun initialize(context: Context) {
         try {
@@ -41,6 +43,7 @@ object SystemWhitelist {
         }
         
         loadUserWhitelist()
+        loadUserBlacklist()
     }
     
     private fun getSharedPreferences(): SharedPreferences? {
@@ -69,6 +72,26 @@ object SystemWhitelist {
         return getAll().contains(packageName)
     }
     
+    // 黑名单相关方法
+    fun getUserBlacklist(): Set<String> {
+        return userBlacklist.toSet()
+    }
+    
+    fun addToUserBlacklist(packageName: String) {
+        userBlacklist.add(packageName)
+        saveUserBlacklist()
+    }
+    
+    fun removeFromUserBlacklist(packageName: String) {
+        userBlacklist.remove(packageName)
+        saveUserBlacklist()
+    }
+    
+    fun isInBlacklist(packageName: String?): Boolean {
+        if (packageName == null) return false
+        return userBlacklist.contains(packageName)
+    }
+    
     private fun saveUserWhitelist() {
         val prefs = getSharedPreferences()
         if (prefs != null) {
@@ -90,6 +113,32 @@ object SystemWhitelist {
                 userWhitelist.addAll(savedWhitelist)
             }
             Log.d(TAG, "Loaded user whitelist: $userWhitelist")
+        } else {
+            Log.e(TAG, "Shared preferences not initialized!")
+        }
+    }
+    
+    private fun saveUserBlacklist() {
+        val prefs = getSharedPreferences()
+        if (prefs != null) {
+            val editor = prefs.edit()
+            editor.putStringSet(USER_BLACKLIST_KEY, userBlacklist)
+            editor.apply()
+            Log.d(TAG, "Saved user blacklist: $userBlacklist")
+        } else {
+            Log.e(TAG, "Shared preferences not initialized!")
+        }
+    }
+    
+    private fun loadUserBlacklist() {
+        val prefs = getSharedPreferences()
+        if (prefs != null) {
+            val savedBlacklist = prefs.getStringSet(USER_BLACKLIST_KEY, emptySet())
+            userBlacklist.clear()
+            if (savedBlacklist != null) {
+                userBlacklist.addAll(savedBlacklist)
+            }
+            Log.d(TAG, "Loaded user blacklist: $userBlacklist")
         } else {
             Log.e(TAG, "Shared preferences not initialized!")
         }

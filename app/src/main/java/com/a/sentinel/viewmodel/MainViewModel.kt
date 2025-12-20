@@ -40,10 +40,21 @@ class MainViewModel : ViewModel() {
             is MainViewEvent.ToggleSystemProcessSection -> toggleSystemProcessSection()
             is MainViewEvent.ToggleSystemServiceProcessSection -> toggleSystemServiceProcessSection()
             is MainViewEvent.ToggleUserProcessSection -> toggleUserProcessSection()
+            // 黑名单相关事件
+            is MainViewEvent.ShowAddBlacklistDialog -> showAddBlacklistDialog()
+            is MainViewEvent.HideAddBlacklistDialog -> hideAddBlacklistDialog()
+            is MainViewEvent.AddToBlacklist -> addToBlacklist(event.packageName)
+            is MainViewEvent.RemoveFromBlacklist -> removeFromBlacklist(event.packageName)
+            is MainViewEvent.KillAllBlacklistedApps -> killAllBlacklistedApps()
         }
     }
 
     private fun checkRootStatus() {
+        // 只有在尚未检查过root权限时才进行检查
+        if (_viewState.value.hasRootChecked) {
+            return
+        }
+        
         viewModelScope.launch {
             _viewState.value = _viewState.value.copy(isLoading = true)
             try {
@@ -52,9 +63,12 @@ class MainViewModel : ViewModel() {
                 }
                 
                 val newState = if (hasRoot) {
-                    // 加载白名单
+                    // 加载白名单和黑名单
                     val whitelist = withContext(Dispatchers.IO) {
                         SystemWhitelist.getAll()
+                    }
+                    val blacklist = withContext(Dispatchers.IO) {
+                        SystemWhitelist.getUserBlacklist()
                     }
                     // 扫描进程
                     val processList = ProcessScanner.scan()
@@ -62,8 +76,10 @@ class MainViewModel : ViewModel() {
                         isLoading = false,
                         rootStatus = "Device is rooted!",
                         hasRoot = true,
+                        hasRootChecked = true, // 标记已检查过root权限
                         processList = processList,
                         whitelist = whitelist,
+                        blacklist = blacklist,
                         // 默认系统进程折叠，用户进程展开
                         isSystemProcessSectionExpanded = false,
                         isSystemServiceProcessSectionExpanded = false,
@@ -73,23 +89,28 @@ class MainViewModel : ViewModel() {
                     MainViewState(
                         isLoading = false,
                         rootStatus = "Device is not rooted or root access denied.",
-                        hasRoot = false
+                        hasRoot = false,
+                        hasRootChecked = true // 标记已检查过root权限
                     )
                 }
                 _viewState.value = newState
             } catch (e: Exception) {
                 _viewState.value = _viewState.value.copy(
                     isLoading = false,
-                    rootStatus = "Error checking root status: ${e.message}"
+                    rootStatus = "Error checking root status: ${e.message}",
+                    hasRootChecked = true // 即使出错也要标记已检查
                 )
             }
         }
     }
 
     private fun refreshProcesses() {
+        // 只有在已确认有root权限的情况下才能刷新进程
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
         viewModelScope.launch {
-            if (!_viewState.value.hasRoot) return@launch
-            
             _viewState.value = _viewState.value.copy(isLoading = true)
             try {
                 val processList = ProcessScanner.scan()
@@ -116,8 +137,25 @@ class MainViewModel : ViewModel() {
             newPackageName = ""
         )
     }
+    
+    // 黑名单相关方法
+    private fun showAddBlacklistDialog() {
+        _viewState.value = _viewState.value.copy(showAddBlacklistDialog = true)
+    }
+
+    private fun hideAddBlacklistDialog() {
+        _viewState.value = _viewState.value.copy(
+            showAddBlacklistDialog = false,
+            newPackageName = ""
+        )
+    }
 
     private fun addToWhitelist(packageName: String) {
+        // 只有在已确认有root权限的情况下才能操作白名单
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
         if (packageName.isNotBlank()) {
             viewModelScope.launch {
                 withContext(Dispatchers.IO) {
@@ -134,8 +172,36 @@ class MainViewModel : ViewModel() {
             }
         }
     }
+    
+    private fun addToBlacklist(packageName: String) {
+        // 只有在已确认有root权限的情况下才能操作黑名单
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
+        if (packageName.isNotBlank()) {
+            viewModelScope.launch {
+                withContext(Dispatchers.IO) {
+                    SystemWhitelist.addToUserBlacklist(packageName)
+                }
+                val blacklist = withContext(Dispatchers.IO) {
+                    SystemWhitelist.getUserBlacklist()
+                }
+                _viewState.value = _viewState.value.copy(
+                    blacklist = blacklist,
+                    showAddBlacklistDialog = false,
+                    newPackageName = ""
+                )
+            }
+        }
+    }
 
     private fun removeFromWhitelist(packageName: String) {
+        // 只有在已确认有root权限的情况下才能操作白名单
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 SystemWhitelist.removeFromUserWhitelist(packageName)
@@ -144,6 +210,23 @@ class MainViewModel : ViewModel() {
                 SystemWhitelist.getAll()
             }
             _viewState.value = _viewState.value.copy(whitelist = whitelist)
+        }
+    }
+    
+    private fun removeFromBlacklist(packageName: String) {
+        // 只有在已确认有root权限的情况下才能操作黑名单
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                SystemWhitelist.removeFromUserBlacklist(packageName)
+            }
+            val blacklist = withContext(Dispatchers.IO) {
+                SystemWhitelist.getUserBlacklist()
+            }
+            _viewState.value = _viewState.value.copy(blacklist = blacklist)
         }
     }
 
@@ -179,6 +262,11 @@ class MainViewModel : ViewModel() {
     }
 
     private fun killSelectedProcesses(processes: Set<ProcessInfo>) {
+        // 只有在已确认有root权限的情况下才能杀死进程
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
         viewModelScope.launch {
             _viewState.value = _viewState.value.copy(isLoading = true)
             try {
@@ -202,8 +290,50 @@ class MainViewModel : ViewModel() {
             }
         }
     }
+    
+    private fun killAllBlacklistedApps() {
+        // 只有在已确认有root权限的情况下才能杀死进程
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
+        viewModelScope.launch {
+            _viewState.value = _viewState.value.copy(isLoading = true)
+            try {
+                withContext(Dispatchers.IO) {
+                    // 获取所有正在运行的进程
+                    val allProcesses = ProcessScanner.scan()
+                    // 筛选出黑名单中的应用进程
+                    val blacklistedProcesses = allProcesses.filter { process ->
+                        process.packageName != null && SystemWhitelist.isInBlacklist(process.packageName)
+                    }
+                    
+                    // 杀死所有黑名单中的应用
+                    blacklistedProcesses.forEach { process ->
+                        ProcessKiller.forceStop(process.packageName!!)
+                    }
+                }
+                // 刷新进程列表
+                val processList = ProcessScanner.scan()
+                _viewState.value = _viewState.value.copy(
+                    isLoading = false,
+                    processList = processList
+                )
+            } catch (e: Exception) {
+                _viewState.value = _viewState.value.copy(
+                    isLoading = false,
+                    errorMessage = "Failed to kill blacklisted apps: ${e.message}"
+                )
+            }
+        }
+    }
 
     private fun killProcess(process: ProcessInfo) {
+        // 只有在已确认有root权限的情况下才能杀死进程
+        if (!_viewState.value.hasRootChecked || !_viewState.value.hasRoot) {
+            return
+        }
+        
         viewModelScope.launch {
             _viewState.value = _viewState.value.copy(isLoading = true)
             try {

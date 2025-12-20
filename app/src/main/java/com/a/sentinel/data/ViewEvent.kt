@@ -17,4 +17,11 @@ sealed class MainViewEvent {
     data object ToggleSystemProcessSection : MainViewEvent()
     data object ToggleSystemServiceProcessSection : MainViewEvent()
     data object ToggleUserProcessSection : MainViewEvent()
+    
+    // 黑名单相关事件
+    data object ShowAddBlacklistDialog : MainViewEvent()
+    data object HideAddBlacklistDialog : MainViewEvent()
+    data class AddToBlacklist(val packageName: String) : MainViewEvent()
+    data class RemoveFromBlacklist(val packageName: String) : MainViewEvent()
+    data object KillAllBlacklistedApps : MainViewEvent()
 }

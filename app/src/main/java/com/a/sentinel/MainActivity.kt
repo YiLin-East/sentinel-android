@@ -1,6 +1,7 @@
 package com.a.sentinel
 
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Bundle
@@ -79,10 +80,9 @@ fun MainScreen(
     // 显示错误消息
     viewState.errorMessage?.let { errorMessage ->
         Toast.makeText(context, errorMessage, Toast.LENGTH_LONG).show()
-        // 清除错误消息
-        // 不再自动清除错误消息，让用户主动刷新
     }
     
+    // 添加到白名单对话框
     if (viewState.showAddWhitelistDialog) {
         AlertDialog(
             onDismissRequest = { 
@@ -128,6 +128,162 @@ fun MainScreen(
         )
     }
     
+    // 添加到黑名单对话框
+    if (viewState.showAddBlacklistDialog) {
+        var installedApps by remember { mutableStateOf<List<PackageInfo>>(emptyList()) }
+        var filteredApps by remember { mutableStateOf<List<PackageInfo>>(emptyList()) }
+        var searchQuery by remember { mutableStateOf("") }
+        
+        // 加载已安装的应用
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val apps = context.packageManager.getInstalledPackages(PackageManager.GET_META_DATA)
+                        .filter { packageInfo ->
+                            // 检查 applicationInfo 是否为空并且不是系统应用
+                            packageInfo.applicationInfo?.let { appInfo ->
+                                appInfo.flags and ApplicationInfo.FLAG_SYSTEM == 0
+                            } ?: false
+                        }
+                    installedApps = apps
+                    filteredApps = apps
+                } catch (e: Exception) {
+                    Log.e("MainScreen", "Failed to load installed apps", e)
+                }
+            }
+        }
+        
+        // 搜索过滤
+        LaunchedEffect(searchQuery, installedApps) {
+            filteredApps = if (searchQuery.isBlank()) {
+                installedApps
+            } else {
+                installedApps.filter { app ->
+                    val appName = try {
+                        app.applicationInfo?.loadLabel(context.packageManager)?.toString() ?: ""
+                    } catch (e: Exception) {
+                        ""
+                    }
+                    appName.contains(searchQuery, ignoreCase = true) || 
+                    app.packageName.contains(searchQuery, ignoreCase = true)
+                }
+            }
+        }
+        
+        AlertDialog(
+            onDismissRequest = { 
+                viewModel.handleEvent(MainViewEvent.HideAddBlacklistDialog) 
+            },
+            title = { Text("Add to Blacklist") },
+            text = {
+                Column(
+                    modifier = Modifier.height(400.dp)
+                ) {
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Search apps") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    LazyColumn(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(filteredApps) { app ->
+                            val appName = try {
+                                app.applicationInfo?.loadLabel(context.packageManager)?.toString() ?: app.packageName
+                            } catch (e: Exception) {
+                                app.packageName
+                            }
+                            
+                            var appIcon by remember(app.packageName) { mutableStateOf<Drawable?>(null) }
+                            
+                            // 加载应用图标
+                            LaunchedEffect(app.packageName) {
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val icon = app.applicationInfo?.loadIcon(context.packageManager)
+                                        withContext(Dispatchers.Main) {
+                                            appIcon = icon
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("MainScreen", "Failed to load app icon", e)
+                                    }
+                                }
+                            }
+                            
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        viewModel.handleEvent(
+                                            MainViewEvent.AddToBlacklist(app.packageName)
+                                        )
+                                        Toast.makeText(context, "Added to blacklist", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (appIcon != null) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(appIcon)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "App Icon",
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .padding(end = 8.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .padding(end = 8.dp)
+                                            .background(Color.LightGray)
+                                    )
+                                }
+                                
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = appName,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        text = app.packageName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                if (viewState.blacklist.contains(app.packageName)) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Already in blacklist",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { 
+                        viewModel.handleEvent(MainViewEvent.HideAddBlacklistDialog) 
+                    }
+                ) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+    
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -161,18 +317,31 @@ fun MainScreen(
                             onClick = { 
                                 viewModel.handleEvent(MainViewEvent.RefreshProcesses) 
                             },
-                            enabled = viewState.hasRoot && !viewState.isLoading
+                            enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
                         ) {
                             Text("Refresh")
                         }
                         
-                        Button(
-                            onClick = { 
-                                viewModel.handleEvent(MainViewEvent.ShowAddWhitelistDialog) 
-                            },
-                            enabled = viewState.hasRoot && !viewState.isLoading
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Add to Whitelist")
+                            Button(
+                                onClick = { 
+                                    viewModel.handleEvent(MainViewEvent.ShowAddWhitelistDialog) 
+                                },
+                                enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
+                            ) {
+                                Text("Add to Whitelist")
+                            }
+                            
+                            Button(
+                                onClick = { 
+                                    viewModel.handleEvent(MainViewEvent.ShowAddBlacklistDialog) 
+                                },
+                                enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
+                            ) {
+                                Text("Add to Blacklist")
+                            }
                         }
                     }
                     
@@ -194,18 +363,32 @@ fun MainScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text(
-                        text = "Whitelist (${viewState.whitelist.size})",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Whitelist (${viewState.whitelist.size})",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        
+                        if (viewState.whitelist.isNotEmpty()) {
+                            Text(
+                                text = "${viewState.whitelist.size} apps",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     if (viewState.whitelist.isEmpty()) {
                         Text("No packages in whitelist")
                     } else {
-                        // 使用Column替代嵌套的LazyColumn
-                        Column(modifier = Modifier.heightIn(max = 200.dp)) {
-                            viewState.whitelist.toList().forEach { pkg ->
+                        LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                            items(viewState.whitelist.toList()) { pkg ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -220,7 +403,96 @@ fun MainScreen(
                                                 MainViewEvent.RemoveFromWhitelist(pkg)
                                             )
                                             Toast.makeText(context, "Removed from whitelist", Toast.LENGTH_SHORT).show()
-                                        }
+                                        },
+                                        enabled = viewState.hasRoot && viewState.hasRootChecked
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Remove")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Blacklist (${viewState.blacklist.size})",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (viewState.blacklist.isNotEmpty()) {
+                                Text(
+                                    text = "${viewState.blacklist.size} apps",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                
+                                Button(
+                                    onClick = { 
+                                        viewModel.handleEvent(MainViewEvent.KillAllBlacklistedApps)
+                                        Toast.makeText(context, "Killing blacklisted apps...", Toast.LENGTH_SHORT).show()
+                                    },
+                                    enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading,
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Kill All")
+                                }
+                            }
+                            
+                            IconButton(
+                                onClick = { 
+                                    viewModel.handleEvent(MainViewEvent.ShowAddBlacklistDialog) 
+                                },
+                                enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Add to Blacklist")
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    if (viewState.blacklist.isEmpty()) {
+                        Text("No packages in blacklist")
+                    } else {
+                        LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                            items(viewState.blacklist.toList()) { pkg ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(pkg)
+                                    IconButton(
+                                        onClick = { 
+                                            viewModel.handleEvent(
+                                                MainViewEvent.RemoveFromBlacklist(pkg)
+                                            )
+                                            Toast.makeText(context, "Removed from blacklist", Toast.LENGTH_SHORT).show()
+                                        },
+                                        enabled = viewState.hasRoot && viewState.hasRootChecked
                                     ) {
                                         Icon(Icons.Default.Delete, contentDescription = "Remove")
                                     }
@@ -263,7 +535,7 @@ fun MainScreen(
                                         Toast.makeText(context, "Killed selected processes", Toast.LENGTH_SHORT).show()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                    enabled = !viewState.isLoading
+                                    enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
                                 ) {
                                     Text("Kill Selected")
                                 }
@@ -273,7 +545,11 @@ fun MainScreen(
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
-                    if (viewState.processList.isEmpty()) {
+                    if (!viewState.hasRootChecked) {
+                        Text("Checking root permissions...")
+                    } else if (!viewState.hasRoot) {
+                        Text("Root permission not granted. Some features will be disabled.")
+                    } else if (viewState.processList.isEmpty()) {
                         Text("No processes found")
                     } else {
                         // 分离不同类型进程
@@ -377,7 +653,8 @@ fun ProcessSection(
                     ProcessItem(
                         process = process,
                         isSelected = viewState.selectedProcesses.contains(process),
-                        isWhitelisted = SystemWhitelist.isInWhitelist(process.packageName),
+                        isWhitelisted = com.a.sentinel.repository.SystemWhitelist.isInWhitelist(process.packageName),
+                        isBlacklisted = com.a.sentinel.repository.SystemWhitelist.isInBlacklist(process.packageName),
                         onProcessSelected = { selected ->
                             viewModel.handleEvent(
                                 MainViewEvent.ToggleProcessSelection(process)
@@ -395,7 +672,7 @@ fun ProcessSection(
                             )
                             Toast.makeText(context, "Killed process", Toast.LENGTH_SHORT).show()
                         },
-                        enabled = !viewState.isLoading
+                        enabled = viewState.hasRoot && viewState.hasRootChecked && !viewState.isLoading
                     )
                 }
             }
@@ -438,6 +715,7 @@ fun ProcessItem(
     process: ProcessInfo,
     isSelected: Boolean,
     isWhitelisted: Boolean,
+    isBlacklisted: Boolean,
     onProcessSelected: (Boolean) -> Unit,
     onExpandClicked: () -> Unit,
     isExpanded: Boolean,
@@ -449,7 +727,7 @@ fun ProcessItem(
     
     // 为用户应用进程加载应用图标
     LaunchedEffect(process.packageName) {
-        if (process.packageName != null && ProcessScanner.isUserAppProcess(process)) {
+        if (process.packageName != null && com.a.sentinel.repository.ProcessScanner.isUserAppProcess(process)) {
             // 首先检查缓存
             var cachedIcon = AppIconCache.get(process.packageName)
             if (cachedIcon != null) {
@@ -536,7 +814,7 @@ fun ProcessItem(
                 )
                 
                 // 显示应用图标（仅对用户应用进程）
-                if (ProcessScanner.isUserAppProcess(process) && appIcon != null) {
+                if (com.a.sentinel.repository.ProcessScanner.isUserAppProcess(process) && appIcon != null) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(appIcon)
@@ -547,7 +825,7 @@ fun ProcessItem(
                             .size(40.dp)
                             .padding(end = 8.dp)
                     )
-                } else if (ProcessScanner.isUserAppProcess(process)) {
+                } else if (com.a.sentinel.repository.ProcessScanner.isUserAppProcess(process)) {
                     // 加载中占位符 - 使用默认应用图标
                     val defaultIcon = AppIconCache.get("default")
                     if (defaultIcon != null) {
@@ -584,6 +862,25 @@ fun ProcessItem(
                             style = MaterialTheme.typography.bodySmall,
                             color = if (isWhitelisted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        
+                        // 显示黑白名单标签
+                        Row {
+                            if (isWhitelisted) {
+                                Text(
+                                    text = "WHITELISTED",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                            if (isBlacklisted) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "BLACKLISTED",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
                     }
                     // 显示UID信息
                     Text(
@@ -593,13 +890,7 @@ fun ProcessItem(
                     )
                 }
                 
-                if (isWhitelisted) {
-                    Text(
-                        text = "WHITELISTED",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                } else {
+                if (!isWhitelisted) {
                     IconButton(onClick = onExpandClicked, enabled = enabled) {
                         Icon(
                             imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowDropDown,
