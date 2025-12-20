@@ -1,11 +1,16 @@
 package com.a.sentinel
 
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
+import android.graphics.drawable.Drawable
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,21 +20,29 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.a.sentinel.data.MainViewEvent
 import com.a.sentinel.data.ProcessInfo
 import com.a.sentinel.repository.ProcessScanner
 import com.a.sentinel.repository.SystemWhitelist
 import com.a.sentinel.ui.theme.SentinelTheme
 import com.a.sentinel.viewmodel.MainViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -323,28 +336,37 @@ fun ProcessSection(
 ) {
     Column {
         // 吸顶标题栏
-        Row(
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onToggle() }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .zIndex(1f),
+            shadowElevation = 4.dp,
+            tonalElevation = 2.dp
         ) {
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowDropDown,
-                contentDescription = if (isExpanded) "Collapse" else "Expand"
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = "${processes.size}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle() }
+                    .padding(vertical = 8.dp)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowDropDown,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand"
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "${processes.size}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         
         // 进程列表
@@ -390,6 +412,27 @@ fun ProcessSection(
     }
 }
 
+// 应用图标缓存
+object AppIconCache {
+    private val cache = ConcurrentHashMap<String, Drawable>()
+    private var defaultIcon: Drawable? = null
+    
+    fun get(packageName: String): Drawable? = if (packageName == "default") defaultIcon else cache[packageName]
+    
+    fun put(packageName: String, icon: Drawable) {
+        if (packageName == "default") {
+            defaultIcon = icon
+        } else {
+            cache[packageName] = icon
+        }
+    }
+    
+    fun clear() {
+        cache.clear()
+        defaultIcon = null
+    }
+}
+
 @Composable
 fun ProcessItem(
     process: ProcessInfo,
@@ -401,6 +444,76 @@ fun ProcessItem(
     onKillProcess: () -> Unit,
     enabled: Boolean = true
 ) {
+    val context = LocalContext.current
+    var appIcon by remember { mutableStateOf<Drawable?>(null) }
+    
+    // 为用户应用进程加载应用图标
+    LaunchedEffect(process.packageName) {
+        if (process.packageName != null && ProcessScanner.isUserAppProcess(process)) {
+            // 首先检查缓存
+            var cachedIcon = AppIconCache.get(process.packageName)
+            if (cachedIcon != null) {
+                appIcon = cachedIcon
+                return@LaunchedEffect
+            }
+            
+            // 检查是否有默认图标
+            val defaultIcon = AppIconCache.get("default")
+            if (defaultIcon != null) {
+                appIcon = defaultIcon
+            }
+            
+            // 缓存未命中，从PackageManager获取
+            withContext(Dispatchers.IO) {
+                try {
+                    val applicationInfo = context.packageManager.getApplicationInfo(process.packageName, 0)
+                    val icon = applicationInfo.loadIcon(context.packageManager)
+                    withContext(Dispatchers.Main) {
+                        appIcon = icon
+                        // 存入缓存
+                        AppIconCache.put(process.packageName, icon)
+                    }
+                } catch (e: PackageManager.NameNotFoundException) {
+                    Log.d("ProcessItem", "App not found: ${process.packageName}", e)
+                    // 应用未找到，使用默认图标
+                    var defaultIcon = AppIconCache.get("default")
+                    if (defaultIcon == null) {
+                        defaultIcon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
+                        // 存入缓存
+                        if (defaultIcon != null) {
+                            AppIconCache.put("default", defaultIcon)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        appIcon = defaultIcon
+                        // 存入特定应用的缓存
+                        if (defaultIcon != null) {
+                            AppIconCache.put(process.packageName, defaultIcon)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("ProcessItem", "Error loading icon for: ${process.packageName}", e)
+                    // 其他错误，使用默认图标
+                    var defaultIcon = AppIconCache.get("default")
+                    if (defaultIcon == null) {
+                        defaultIcon = ContextCompat.getDrawable(context, android.R.drawable.sym_def_app_icon)
+                        // 存入缓存
+                        if (defaultIcon != null) {
+                            AppIconCache.put("default", defaultIcon)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        appIcon = defaultIcon
+                        // 存入特定应用的缓存
+                        if (defaultIcon != null) {
+                            AppIconCache.put(process.packageName, defaultIcon)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -421,6 +534,43 @@ fun ProcessItem(
                     onCheckedChange = onProcessSelected,
                     enabled = !isWhitelisted && enabled
                 )
+                
+                // 显示应用图标（仅对用户应用进程）
+                if (ProcessScanner.isUserAppProcess(process) && appIcon != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(appIcon)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "App Icon",
+                        modifier = Modifier
+                            .size(40.dp)
+                            .padding(end = 8.dp)
+                    )
+                } else if (ProcessScanner.isUserAppProcess(process)) {
+                    // 加载中占位符 - 使用默认应用图标
+                    val defaultIcon = AppIconCache.get("default")
+                    if (defaultIcon != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(defaultIcon)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Default App Icon",
+                            modifier = Modifier
+                                .size(40.dp)
+                                .padding(end = 8.dp)
+                        )
+                    } else {
+                        // 如果还没有默认图标，显示灰色占位符
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .padding(end = 8.dp)
+                                .background(Color.LightGray)
+                        )
+                    }
+                }
                 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
