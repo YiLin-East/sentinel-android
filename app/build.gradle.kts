@@ -23,7 +23,7 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("sentinel.keystore")
+            storeFile = file("../sentinel.keystore")
             storePassword = "123456"
             keyAlias = "sentinel"
             keyPassword = "123456"
