@@ -1,3 +1,5 @@
+import java.io.File
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -23,7 +25,11 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("../sentinel.keystore")
+            val keystoreFile = file("../sentinel.keystore")
+            if (!keystoreFile.exists()) {
+                println("WARNING: Keystore file does not exist at ${keystoreFile.absolutePath}")
+            }
+            storeFile = keystoreFile
             storePassword = System.getenv("SIGNING_STORE_PASSWORD") ?: "123456"
             keyAlias = System.getenv("SIGNING_KEY_ALIAS") ?: "sentinel"
             keyPassword = System.getenv("SIGNING_KEY_PASSWORD") ?: "123456"

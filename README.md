@@ -39,6 +39,31 @@
 
 ---
 
+## 构建说明
+
+### 本地构建
+直接使用 Android Studio 打开项目即可构建。
+
+### GitHub Actions 构建
+项目配置了自动构建流程，需要在仓库的 Secrets 中设置以下变量：
+- `KEYSTORE_BASE64`: keystore 文件的 base64 编码字符串
+- `KEY_ALIAS`: 签名密钥别名
+- `KEY_PASSWORD`: 签名密钥密码
+- `KEYSTORE_PASSWORD`: keystore 密码
+
+#### 生成 keystore 并编码为 base64 的步骤：
+```bash
+# 1. 生成新的 keystore（如果还没有的话）
+keytool -genkey -v -keystore sentinel.keystore -alias sentinel -keyalg RSA -keysize 2048 -validity 10000
+
+# 2. 将 keystore 文件编码为 base64
+base64 -i sentinel.keystore | tr -d '\n'
+```
+
+然后将输出的 base64 字符串复制到 GitHub 仓库的 Secrets 中的 `KEYSTORE_BASE64` 变量。
+
+---
+
 ## 技术栈
 
 * Kotlin
