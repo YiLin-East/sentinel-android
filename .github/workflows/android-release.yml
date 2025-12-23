@@ -26,12 +26,42 @@ jobs:
       
     - name: Decode keystore file
       run: |
+        # 检查必要的 secrets 是否都已设置
+        if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "ERROR: KEYSTORE_BASE64 secret is not set. Please add it in repository settings -> Secrets and variables."
+          exit 1
+        fi
+        
+        if [ -z "${{ secrets.KEYSTORE_PASSWORD }}" ]; then
+          echo "ERROR: KEYSTORE_PASSWORD secret is not set. Please add it in repository settings -> Secrets and variables."
+          exit 1
+        fi
+        
+        if [ -z "${{ secrets.KEY_ALIAS }}" ]; then
+          echo "ERROR: KEY_ALIAS secret is not set. Please add it in repository settings -> Secrets and variables."
+          exit 1
+        fi
+        
+        if [ -z "${{ secrets.KEY_PASSWORD }}" ]; then
+          echo "ERROR: KEY_PASSWORD secret is not set. Please add it in repository settings -> Secrets and variables."
+          exit 1
+        fi
+        
+        # 解码 keystore
         echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > sentinel.keystore
+        
+        # 检查生成的文件是否存在且非空
+        if [ ! -s sentinel.keystore ]; then
+          echo "ERROR: Keystore file is empty or was not created properly."
+          exit 1
+        fi
+        
         # 验证 keystore 文件是否有效
         if keytool -list -v -keystore sentinel.keystore -storepass ${{ secrets.KEYSTORE_PASSWORD }} 2>/dev/null; then
-          echo "Keystore is valid"
+          echo "Keystore validation successful"
         else
-          echo "Keystore is invalid or password is wrong"
+          echo "ERROR: Keystore is invalid or password is wrong"
+          keytool -list -v -keystore sentinel.keystore -storepass ${{ secrets.KEYSTORE_PASSWORD }}
           exit 1
         fi
         
