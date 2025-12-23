@@ -56,11 +56,21 @@
 # 1. 生成新的 keystore（如果还没有的话）
 keytool -genkey -v -keystore sentinel.keystore -alias sentinel -keyalg RSA -keysize 2048 -validity 10000
 
-# 2. 将 keystore 文件编码为 base64
+# 2. 将 keystore 文件编码为 base64（确保没有换行符）
 base64 -i sentinel.keystore | tr -d '\n'
+
+# 或者在 macOS 上使用
+base64 -i sentinel.keystore | tr -d '\n\r'
 ```
 
 然后将输出的 base64 字符串复制到 GitHub 仓库的 Secrets 中的 `KEYSTORE_BASE64` 变量。
+
+#### 解决 "Tag number over 30 is not supported" 错误
+如果遇到此错误，通常是由于 keystore 文件在 base64 编码/解码过程中损坏。请按以下步骤操作：
+1. 重新生成 keystore 文件
+2. 使用 `base64 -i sentinel.keystore | tr -d '\n'` 命令获取纯 base64 字符串
+3. 更新 GitHub Secrets 中的 `KEYSTORE_BASE64` 值
+4. 确保 base64 字符串中没有任何额外的换行符或空格
 
 ---
 
