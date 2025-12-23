@@ -26,7 +26,14 @@ jobs:
       
     - name: Decode keystore file
       run: |
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -di > sentinel.keystore
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > sentinel.keystore
+        # 验证 keystore 文件是否有效
+        if keytool -list -v -keystore sentinel.keystore -storepass ${{ secrets.KEYSTORE_PASSWORD }} 2>/dev/null; then
+          echo "Keystore is valid"
+        else
+          echo "Keystore is invalid or password is wrong"
+          exit 1
+        fi
         
     - name: Build with Gradle
       run: ./gradlew assembleRelease
